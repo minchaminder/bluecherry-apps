@@ -20,6 +20,20 @@ jobs:
           fetch-depth: 0
           submodules: false
 
+      - name: Record pinned dependency SHAs
+        shell: bash
+        run: |
+          git ls-tree HEAD misc/libav misc/ponvif misc/libconfig misc/pugixml > dependency-shas.txt
+          cat dependency-shas.txt
+
+      - name: Upload dependency SHA report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bluecherry-dependency-shas
+          path: dependency-shas.txt
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Check out pinned FFmpeg source
         shell: bash
         run: |
