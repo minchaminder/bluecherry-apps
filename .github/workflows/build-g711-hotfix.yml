@@ -70,11 +70,22 @@ jobs:
             --tool 'apt-get -y --no-install-recommends' debian/control
 
       - name: Build Bluecherry package
+        shell: bash
         env:
           DEB_BUILD_OPTIONS: nocheck
         run: |
+          set -o pipefail
           echo "#define GIT_REVISION \"${GITHUB_SHA} fix/g711-recording-audio\"" > server/version.h
-          dpkg-buildpackage -b -uc -us
+          dpkg-buildpackage -b -uc -us 2>&1 | tee build.log
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bluecherry-build-log
+          path: build.log
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Build small reversible hotfix DEB
         shell: bash
