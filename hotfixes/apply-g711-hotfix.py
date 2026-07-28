@@ -3,6 +3,7 @@ from pathlib import Path
 
 SOURCE = Path("server/media_writer.cpp")
 RULES = Path("debian/rules")
+CONTROL = Path("debian/control.in")
 
 
 def replace_once(text: str, old: str, new: str, description: str) -> str:
@@ -97,4 +98,16 @@ rules = replace_once(
 )
 RULES.write_text(rules, encoding="utf-8")
 
-print("Applied Bluecherry G.711 recording hotfix and serial build setting")
+control = CONTROL.read_text(encoding="utf-8")
+control = replace_once(
+    control,
+    " libidn11-dev, libbsd-dev, yasm, libudev-dev, libopencv-dev,\n",
+    " libmariadb-dev-compat, libidn11-dev, libbsd-dev, yasm, libudev-dev, libopencv-dev,\n",
+    "MariaDB compatibility build dependency",
+)
+CONTROL.write_text(control, encoding="utf-8")
+
+print(
+    "Applied Bluecherry G.711 recording hotfix, serial build setting, "
+    "and Ubuntu 24.04 MariaDB compatibility dependency"
+)
