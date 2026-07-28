@@ -14,22 +14,47 @@ jobs:
     timeout-minutes: 120
 
     steps:
-      - name: Check out source
+      - name: Check out Bluecherry source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: false
 
-      - name: Initialize public submodules
+      - name: Check out pinned FFmpeg source
         shell: bash
         run: |
           set -euxo pipefail
-          git submodule sync --recursive
-          git -c protocol.version=2 submodule update --init misc/libav
-          git -c protocol.version=2 submodule update --init misc/ponvif
-          git -c protocol.version=2 submodule update --init misc/ponvif_ext
-          git submodule update --init --recursive
-          git submodule status --recursive
+          sha=$(git ls-tree HEAD misc/libav | awk '{print $3}')
+          test -n "$sha"
+          rm -rf misc/libav
+          git clone --filter=blob:none --no-checkout https://github.com/FFmpeg/FFmpeg.git misc/libav
+          git -C misc/libav fetch --depth 1 origin "$sha"
+          git -C misc/libav checkout --detach "$sha"
+          test "$(git -C misc/libav rev-parse HEAD)" = "$sha"
+
+      - name: Check out pinned ponvif source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sha=$(git ls-tree HEAD misc/ponvif | awk '{print $3}')
+          test -n "$sha"
+          rm -rf misc/ponvif
+          git clone --filter=blob:none --no-checkout https://github.com/ltoscano/ponvif.git misc/ponvif
+          git -C misc/ponvif fetch --depth 1 origin "$sha"
+          git -C misc/ponvif checkout --detach "$sha"
+          test "$(git -C misc/ponvif rev-parse HEAD)" = "$sha"
+
+      - name: Check out pinned ponvif_ext source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sha=$(git ls-tree HEAD misc/ponvif_ext | awk '{print $3}')
+          test -n "$sha"
+          rm -rf misc/ponvif_ext
+          git clone --filter=blob:none --no-checkout https://github.com/bluecherrydvr/ponvif_ext.git misc/ponvif_ext
+          git -C misc/ponvif_ext fetch --depth 1 origin "$sha"
+          git -C misc/ponvif_ext checkout --detach "$sha"
+          test "$(git -C misc/ponvif_ext rev-parse HEAD)" = "$sha"
 
       - name: Apply G.711 recorder patch
         run: patch -p1 --forward < hotfixes/g711-recording-audio.patch
