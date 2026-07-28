@@ -1,0 +1,214 @@
+name: Build G.711 recording hotfix
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/g711-recording-audio
+    paths:
+      - server/**
+      - hotfixes/g711-recording-audio.patch
+      - .github/workflows/build-g711-hotfix.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out source and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Apply G.711 recorder patch
+        run: patch -p1 --forward < hotfixes/g711-recording-audio.patch
+
+      - name: Install package build tooling
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool git build-essential gcc g++ \
+            debhelper devscripts equivs fakeroot ccache bison flex texinfo \
+            yasm nasm cmake pkg-config libbsd-dev libopencv-dev libudev-dev \
+            libva-dev libcurl4-openssl-dev libidn-dev gsoap libgsoap-dev \
+            libmariadb-dev rsyslog sudo
+
+      - name: Generate Debian control file
+        run: debian/rules debian/control
+
+      - name: Install declared build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo mk-build-deps --install --remove \
+            --tool 'apt-get -y --no-install-recommends' debian/control
+
+      - name: Build Bluecherry package
+        env:
+          DEB_BUILD_OPTIONS: nocheck
+        run: |
+          echo "#define GIT_REVISION \"${GITHUB_SHA} fix/g711-recording-audio\"" > server/version.h
+          dpkg-buildpackage -b -uc -us
+
+      - name: Extract patched bc-server
+        id: extract
+        shell: bash
+        run: |
+          set -euo pipefail
+          full_deb=$(find .. -maxdepth 1 -type f -name 'bluecherry_*_amd64.deb' ! -name '*-dbg_*' | head -n1)
+          test -n "$full_deb"
+          mkdir -p build/full
+          dpkg-deb -x "$full_deb" build/full
+          test -x build/full/usr/sbin/bc-server
+          file build/full/usr/sbin/bc-server
+          ldd build/full/usr/sbin/bc-server
+          echo "full_deb=$full_deb" >> "$GITHUB_OUTPUT"
+
+      - name: Build small reversible hotfix DEB
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=build/hotfix
+          package=bluecherry-g711-hotfix
+          version=3.1.14+g711fix1
+
+          rm -rf "$root"
+          mkdir -p \
+            "$root/DEBIAN" \
+            "$root/usr/lib/$package" \
+            "$root/usr/share/doc/$package"
+
+          install -m 0755 build/full/usr/sbin/bc-server \
+            "$root/usr/lib/$package/bc-server"
+
+          cat > "$root/DEBIAN/control" <<EOF
+          Package: $package
+          Version: $version
+          Section: admin
+          Priority: optional
+          Architecture: amd64
+          Depends: bluecherry (= 3:3.1.14), coreutils, systemd
+          Maintainer: Bluecherry G.711 Hotfix <local-hotfix@invalid>
+          Description: Bluecherry 3.1.14 G.711 recording hotfix
+           Replaces only /usr/sbin/bc-server at install time and restores the
+           original binary when removed. Keeps H.264 video and PCMA/PCMU audio
+           unchanged, selecting the QuickTime MOV muxer for G.711 recordings.
+          EOF
+          sed -i 's/^          //' "$root/DEBIAN/control"
+
+          cat > "$root/DEBIAN/preinst" <<'EOF'
+          #!/bin/sh
+          set -e
+          installed=$(dpkg-query -W -f='${Version}' bluecherry 2>/dev/null || true)
+          case "$installed" in
+            3:3.1.14|3:3.1.14-*) ;;
+            *)
+              echo "This hotfix requires Bluecherry 3:3.1.14; installed: ${installed:-none}" >&2
+              exit 1
+              ;;
+          esac
+          test -x /usr/sbin/bc-server || {
+            echo "/usr/sbin/bc-server is missing" >&2
+            exit 1
+          }
+          exit 0
+          EOF
+
+          cat > "$root/DEBIAN/postinst" <<'EOF'
+          #!/bin/sh
+          set -e
+          state=/var/lib/bluecherry-g711-hotfix
+          payload=/usr/lib/bluecherry-g711-hotfix/bc-server
+          target=/usr/sbin/bc-server
+
+          mkdir -p "$state"
+          if [ ! -f "$state/bc-server.original" ]; then
+            cp -a "$target" "$state/bc-server.original"
+            sha256sum "$state/bc-server.original" > "$state/bc-server.original.sha256"
+          fi
+
+          systemctl stop bluecherry.service 2>/dev/null || true
+          install -m 0755 "$payload" "$target"
+          sha256sum "$target" > "$state/bc-server.hotfix.sha256"
+          systemctl start bluecherry.service
+          systemctl --no-pager --full status bluecherry.service || true
+          exit 0
+          EOF
+
+          cat > "$root/DEBIAN/prerm" <<'EOF'
+          #!/bin/sh
+          set -e
+          case "$1" in
+            remove|deconfigure)
+              state=/var/lib/bluecherry-g711-hotfix
+              target=/usr/sbin/bc-server
+              systemctl stop bluecherry.service 2>/dev/null || true
+              if [ -f "$state/bc-server.original" ]; then
+                install -m 0755 "$state/bc-server.original" "$target"
+              fi
+              systemctl start bluecherry.service 2>/dev/null || true
+              ;;
+          esac
+          exit 0
+          EOF
+
+          cat > "$root/DEBIAN/postrm" <<'EOF'
+          #!/bin/sh
+          set -e
+          case "$1" in
+            purge)
+              rm -rf /var/lib/bluecherry-g711-hotfix
+              ;;
+          esac
+          exit 0
+          EOF
+
+          chmod 0755 "$root/DEBIAN/preinst" "$root/DEBIAN/postinst" \
+            "$root/DEBIAN/prerm" "$root/DEBIAN/postrm"
+
+          cat > "$root/usr/share/doc/$package/README" <<'EOF'
+          Bluecherry G.711 recording hotfix
+          =================================
+
+          Scope:
+          - Native package installation only; no Docker and no relay.
+          - Requires installed Bluecherry version 3:3.1.14.
+          - Replaces only /usr/sbin/bc-server at install time.
+          - Saves the original binary under /var/lib/bluecherry-g711-hotfix/.
+          - Removing this package restores the original binary.
+
+          Install:
+            sudo dpkg -i bluecherry-g711-hotfix_3.1.14+g711fix1_amd64.deb
+
+          Roll back:
+            sudo dpkg -r bluecherry-g711-hotfix
+
+          Verify:
+            systemctl status bluecherry --no-pager
+            journalctl -u bluecherry -n 100 --no-pager
+          EOF
+          sed -i 's/^          //' "$root/usr/share/doc/$package/README"
+
+          mkdir -p dist
+          dpkg-deb --root-owner-group --build "$root" \
+            "dist/${package}_${version}_amd64.deb"
+          sha256sum dist/*.deb > dist/SHA256SUMS
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb
+
+      - name: Upload hotfix artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bluecherry-g711-hotfix-ubuntu24.04-amd64
+          path: |
+            dist/bluecherry-g711-hotfix_3.1.14+g711fix1_amd64.deb
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
