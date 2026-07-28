@@ -2,8 +2,6 @@ name: Build G.711 recording hotfix
 
 on:
   workflow_dispatch:
-  push:
-    branches: [fix/g711-recording-audio]
   pull_request:
     branches: [master]
 
