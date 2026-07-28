@@ -2,6 +2,7 @@
 from pathlib import Path
 
 SOURCE = Path("server/media_writer.cpp")
+RULES = Path("debian/rules")
 
 
 def replace_once(text: str, old: str, new: str, description: str) -> str:
@@ -83,4 +84,17 @@ new_muxer = """	/* MP4 does not accept stream-copied PCMA/PCMU, while the QuickT
 
 text = replace_once(text, old_muxer, new_muxer, "G.711 muxer selection")
 SOURCE.write_text(text, encoding="utf-8")
-print("Applied Bluecherry G.711 recording hotfix to server/media_writer.cpp")
+
+rules = RULES.read_text(encoding="utf-8")
+rules = replace_once(
+    rules,
+    "#!/usr/bin/make -f\n\n",
+    "#!/usr/bin/make -f\n\n"
+    "# Bluecherry's top-level Makefile does not express dependencies between\n"
+    "# misc libraries, libbluecherry, utilities and bc-server. Build serially.\n"
+    "export DEB_BUILD_OPTIONS := $(filter-out parallel=%,$(DEB_BUILD_OPTIONS)) parallel=1\n\n",
+    "serial Debian build setting",
+)
+RULES.write_text(rules, encoding="utf-8")
+
+print("Applied Bluecherry G.711 recording hotfix and serial build setting")
