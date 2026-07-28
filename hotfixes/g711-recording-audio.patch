@@ -1,0 +1,60 @@
+diff --git a/server/media_writer.cpp b/server/media_writer.cpp
+index 0a322e1..0000000 100644
+--- a/server/media_writer.cpp
++++ b/server/media_writer.cpp
+@@ -45,28 +45,11 @@ static bool is_audio_stream_compatible(const stream_properties::audio_properties
+ {
+ 	enum AVCodecID codec_id = audio_props.codec_id;
+-	int channels = audio_props.channels;
+-	int sample_rate = audio_props.sample_rate;
+-	
+-	// Enhanced problematic audio detection - discard completely if issues detected
+-	if ((codec_id == AV_CODEC_ID_PCM_MULAW || codec_id == AV_CODEC_ID_PCM_ALAW) && channels == 1) {
+-		bc_log(Warning, "Discarding problematic audio stream: %s with 1 channel (causes muxer initialization failure)", 
+-			avcodec_get_name(codec_id));
+-		return false;
+-	}
+-	
+-	// Check for non-standard sample rates for G711 codecs
+-	if (codec_id == AV_CODEC_ID_PCM_ALAW && sample_rate != 8000) {
+-		bc_log(Warning, "Discarding problematic audio stream: %s with non-standard sample rate %d Hz (expected 8000 Hz)", 
+-			avcodec_get_name(codec_id), sample_rate);
+-		return false;
+-	}
+-	
+-	if (codec_id == AV_CODEC_ID_PCM_MULAW && sample_rate != 8000) {
+-		bc_log(Warning, "Discarding problematic audio stream: %s with non-standard sample rate %d Hz (expected 8000 Hz)", 
+-			avcodec_get_name(codec_id), sample_rate);
+-		return false;
+-	}
++
++	/* Mono G.711 is valid surveillance audio. MP4 mode cannot mux it, but
++	 * QuickTime MOV mode can. media_writer::open() selects MOV mode for
++	 * PCMA/PCMU instead of discarding the audio stream. */
+ 	
+ 	// Check if codec is supported
+ 	switch (codec_id) {
+@@ -500,10 +483,20 @@ int media_writer::open(const std::string &path, const stream_properties &properti
+ 	AVCodec *codec;
+ 
+ 	/* Get the output format */
+-	const AVOutputFormat *fmt_out = av_guess_format("mp4", NULL, "video/mp4");
++	const bool use_mov_for_g711 = properties.has_audio() &&
++		(properties.audio.codec_id == AV_CODEC_ID_PCM_ALAW ||
++		 properties.audio.codec_id == AV_CODEC_ID_PCM_MULAW);
++	const char *format_name = use_mov_for_g711 ? "mov" : "mp4";
++	const char *mime_type = use_mov_for_g711 ? "video/quicktime" : "video/mp4";
++
++	if (use_mov_for_g711) {
++		bc_log(Info, "Using QuickTime MOV muxer for %s audio in recording %s",
++			avcodec_get_name(properties.audio.codec_id), path.c_str());
++	}
++
++	const AVOutputFormat *fmt_out = av_guess_format(format_name, NULL, mime_type);
+ 	if (fmt_out == NULL)
+ 	{
+-		bc_log(Error, "media_writer: MP4 output format is not found!");
++		bc_log(Error, "media_writer: %s output format is not found!", format_name);
+ 		errno = EINVAL;
+ 
+ 		close();
