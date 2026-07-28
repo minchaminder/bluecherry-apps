@@ -1,0 +1,83 @@
+name: Build G.711 recording hotfix
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Initialize public submodules
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git submodule sync --recursive
+          git -c protocol.version=2 submodule update --init misc/libav
+          git -c protocol.version=2 submodule update --init misc/ponvif
+          git -c protocol.version=2 submodule update --init misc/ponvif_ext
+          git submodule update --init --recursive
+          git submodule status --recursive
+
+      - name: Apply G.711 recorder patch
+        run: patch -p1 --forward < hotfixes/g711-recording-audio.patch
+
+      - name: Install package build tooling
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool git build-essential gcc g++ \
+            debhelper devscripts equivs fakeroot ccache bison flex texinfo \
+            yasm nasm cmake pkg-config libbsd-dev libopencv-dev libudev-dev \
+            libva-dev libcurl4-openssl-dev libidn-dev gsoap libgsoap-dev \
+            libmariadb-dev rsyslog sudo file
+
+      - name: Generate Debian control file
+        run: debian/rules debian/control
+
+      - name: Install declared build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo mk-build-deps --install --remove \
+            --tool 'apt-get -y --no-install-recommends' debian/control
+
+      - name: Build Bluecherry package
+        env:
+          DEB_BUILD_OPTIONS: nocheck
+        run: |
+          echo "#define GIT_REVISION \"${GITHUB_SHA} fix/g711-recording-audio\"" > server/version.h
+          dpkg-buildpackage -b -uc -us
+
+      - name: Build small reversible hotfix DEB
+        shell: bash
+        run: |
+          set -euo pipefail
+          full_deb=$(find .. -maxdepth 1 -type f -name 'bluecherry_*_amd64.deb' ! -name '*-dbg_*' | head -n1)
+          test -n "$full_deb"
+          chmod +x hotfixes/build-g711-hotfix-deb.sh
+          hotfixes/build-g711-hotfix-deb.sh "$full_deb"
+
+      - name: Upload hotfix artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bluecherry-g711-hotfix-ubuntu24.04-amd64
+          path: |
+            dist/bluecherry-g711-hotfix_3.1.14+g711fix1_amd64.deb
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
