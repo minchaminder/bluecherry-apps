@@ -44,18 +44,6 @@ jobs:
           git -C misc/ponvif checkout --detach "$sha"
           test "$(git -C misc/ponvif rev-parse HEAD)" = "$sha"
 
-      - name: Check out pinned ponvif_ext source
-        shell: bash
-        run: |
-          set -euxo pipefail
-          sha=$(git ls-tree HEAD misc/ponvif_ext | awk '{print $3}')
-          test -n "$sha"
-          rm -rf misc/ponvif_ext
-          git clone --filter=blob:none --no-checkout https://github.com/bluecherrydvr/ponvif_ext.git misc/ponvif_ext
-          git -C misc/ponvif_ext fetch --depth 1 origin "$sha"
-          git -C misc/ponvif_ext checkout --detach "$sha"
-          test "$(git -C misc/ponvif_ext rev-parse HEAD)" = "$sha"
-
       - name: Apply G.711 recorder patch
         run: patch -p1 --forward < hotfixes/g711-recording-audio.patch
 
