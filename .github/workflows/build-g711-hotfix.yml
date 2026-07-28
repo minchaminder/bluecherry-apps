@@ -44,6 +44,30 @@ jobs:
           git -C misc/ponvif checkout --detach "$sha"
           test "$(git -C misc/ponvif rev-parse HEAD)" = "$sha"
 
+      - name: Check out pinned libconfig source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sha=$(git ls-tree HEAD misc/libconfig | awk '{print $3}')
+          test -n "$sha"
+          rm -rf misc/libconfig
+          git clone --filter=blob:none --no-checkout https://github.com/hyperrealm/libconfig.git misc/libconfig
+          git -C misc/libconfig fetch --depth 1 origin "$sha"
+          git -C misc/libconfig checkout --detach "$sha"
+          test "$(git -C misc/libconfig rev-parse HEAD)" = "$sha"
+
+      - name: Check out pinned pugixml source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sha=$(git ls-tree HEAD misc/pugixml | awk '{print $3}')
+          test -n "$sha"
+          rm -rf misc/pugixml
+          git clone --filter=blob:none --no-checkout https://github.com/zeux/pugixml.git misc/pugixml
+          git -C misc/pugixml fetch --depth 1 origin "$sha"
+          git -C misc/pugixml checkout --detach "$sha"
+          test "$(git -C misc/pugixml rev-parse HEAD)" = "$sha"
+
       - name: Apply G.711 recorder hotfix
         run: python3 hotfixes/apply-g711-hotfix.py
 
