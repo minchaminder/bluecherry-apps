@@ -9,6 +9,13 @@ on:
       - server/**
       - hotfixes/g711-recording-audio.patch
       - .github/workflows/build-g711-hotfix.yml
+  pull_request:
+    branches:
+      - master
+    paths:
+      - server/**
+      - hotfixes/g711-recording-audio.patch
+      - .github/workflows/build-g711-hotfix.yml
 
 permissions:
   contents: read
