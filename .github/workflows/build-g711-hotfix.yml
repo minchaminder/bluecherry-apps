@@ -27,10 +27,11 @@ jobs:
         run: |
           set -euxo pipefail
           git submodule sync --recursive
-          git -c protocol.version=2 submodule update --init --depth 1 misc/libav
-          git -c protocol.version=2 submodule update --init --depth 1 misc/ponvif
-          git -c protocol.version=2 submodule update --init --depth 1 misc/ponvif_ext
-          git submodule status
+          git -c protocol.version=2 submodule update --init misc/libav
+          git -c protocol.version=2 submodule update --init misc/ponvif
+          git -c protocol.version=2 submodule update --init misc/ponvif_ext
+          git submodule update --init --recursive
+          git submodule status --recursive
 
       - name: Apply G.711 recorder patch
         run: patch -p1 --forward < hotfixes/g711-recording-audio.patch
@@ -45,7 +46,7 @@ jobs:
             debhelper devscripts equivs fakeroot ccache bison flex texinfo \
             yasm nasm cmake pkg-config libbsd-dev libopencv-dev libudev-dev \
             libva-dev libcurl4-openssl-dev libidn-dev gsoap libgsoap-dev \
-            libmariadb-dev rsyslog sudo
+            libmariadb-dev rsyslog sudo file
 
       - name: Generate Debian control file
         run: debian/rules debian/control
